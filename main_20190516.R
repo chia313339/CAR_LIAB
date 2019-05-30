@@ -57,9 +57,9 @@ LE_UNIT_NO = label_encoder(dataset$UNIT_NO)
 tmp_col = as.integer(LE_UNIT_NO(dataset$UNIT_NO))
 dataset$UNIT_NO = tmp_col
 
-tmp_col = ifelse(dataset$BUSINESS_ORIGIN %in% c('XXX','XXZ','XXY','XXJ'),dataset$BUSINESS_ORIGIN,'OTHS')
-LE_BUSINESS_ORIGIN = label_encoder(tmp_col)
-tmp_col = as.integer(LE_BUSINESS_ORIGIN(tmp_col))
+
+LE_BUSINESS_ORIGIN = label_encoder(dataset$BUSINESS_ORIGIN)
+tmp_col = as.integer(LE_BUSINESS_ORIGIN(dataset$BUSINESS_ORIGIN))
 dataset$BUSINESS_ORIGIN = tmp_col
 
 LE_COPERATE_COMPANY_NO = label_encoder(dataset$COPERATE_COMPANY_NO)
@@ -154,17 +154,165 @@ dataset$MOTOR_FLG = tmp_col
 
 dataset$FORCE_INJURE_IND_L3Y = as.integer(dataset$FORCE_INJURE_IND_L3Y)
 
+
 # remove strange data
 dataset = dataset[dataset$ORIGIN_ISSUE_DUR>=0,]
 dataset = dataset[dataset$AGE>=0,]
-dataset = dataset[dataset$SPECIAL_INSRNCE_TYPE!='N',]
+
+dataset$START_DATETIME = as.Date(dataset$START_DATETIME)
+
+testdata = dataset[dataset$START_DATETIME>='2017-01-01',]
+traindata = dataset[dataset$START_DATETIME<'2017-01-01',]
 
 
-traindata = dataset[dataset$START_DATETIME>='2017-01-01',]
-testdata = dataset[dataset$START_DATETIME<'2017-01-01',]
+#####################################################
+traindata$START_DATETIME = NULL
+traindata$INSURE_COMPLEX=NULL
+traindata$INSURE_BURGLAR=NULL
+traindata$INSURE_LIAB=NULL
+traindata$INSURE_PASSENGER=NULL
+traindata$INSURE_OTHERS=NULL
+traindata$INSURE_FORCE=NULL
+traindata$INSURE_FORCE_INJURE=NULL
+traindata$INSURE=NULL
 
-saveRDS(traindata,'traindata.rds')
-saveRDS(testdata,'testdata.rds')
+tmp =  ifelse(traindata$LOSS_RATE_COMPLEX>0,1,0)
+tmp[is.na(tmp)]=0
+traindata$LOSS_RATE_COMPLEX=tmp
+
+tmp =  ifelse(traindata$LOSS_RATE_BURGLAR>0,1,0)
+tmp[is.na(tmp)]=0
+traindata$LOSS_RATE_BURGLAR=tmp
+
+tmp =  ifelse(traindata$LOSS_RATE_LIAB>0,1,0)
+tmp[is.na(tmp)]=0
+traindata$LOSS_RATE_LIAB=tmp
+
+tmp =  ifelse(traindata$LOSS_RATE_PASSENGER>0,1,0)
+tmp[is.na(tmp)]=0
+traindata$LOSS_RATE_PASSENGER=tmp
+
+tmp =  ifelse(traindata$LOSS_RATE_OTHERS>0,1,0)
+tmp[is.na(tmp)]=0
+traindata$LOSS_RATE_OTHERS=tmp
+
+tmp =  ifelse(traindata$LOSS_RATE>0,1,0)
+tmp[is.na(tmp)]=0
+traindata$LOSS_RATE=tmp
+
+testdata$START_DATETIME = NULL
+testdata$INSURE_COMPLEX=NULL
+testdata$INSURE_BURGLAR=NULL
+testdata$INSURE_LIAB=NULL
+testdata$INSURE_PASSENGER=NULL
+testdata$INSURE_OTHERS=NULL
+testdata$INSURE_FORCE=NULL
+testdata$INSURE_FORCE_INJURE=NULL
+testdata$INSURE=NULL
+
+tmp =  ifelse(testdata$LOSS_RATE_COMPLEX>0,1,0)
+tmp[is.na(tmp)]=0
+testdata$LOSS_RATE_COMPLEX=tmp
+
+tmp =  ifelse(testdata$LOSS_RATE_BURGLAR>0,1,0)
+tmp[is.na(tmp)]=0
+testdata$LOSS_RATE_BURGLAR=tmp
+
+tmp =  ifelse(testdata$LOSS_RATE_LIAB>0,1,0)
+tmp[is.na(tmp)]=0
+testdata$LOSS_RATE_LIAB=tmp
+
+tmp =  ifelse(testdata$LOSS_RATE_PASSENGER>0,1,0)
+tmp[is.na(tmp)]=0
+testdata$LOSS_RATE_PASSENGER=tmp
+
+tmp =  ifelse(testdata$LOSS_RATE_OTHERS>0,1,0)
+tmp[is.na(tmp)]=0
+testdata$LOSS_RATE_OTHERS=tmp
+
+tmp =  ifelse(testdata$LOSS_RATE>0,1,0)
+tmp[is.na(tmp)]=0
+testdata$LOSS_RATE=tmp
+
+gc()
+
+#####################################################
+traindata$LOSS_RATE_COMPLEX=NULL
+traindata$LOSS_RATE_BURGLAR=NULL
+traindata$LOSS_RATE_LIAB=NULL
+traindata$LOSS_RATE_PASSENGER=NULL
+traindata$LOSS_RATE_OTHERS=NULL
+testdata$LOSS_RATE_COMPLEX=NULL
+testdata$LOSS_RATE_BURGLAR=NULL
+testdata$LOSS_RATE_LIAB=NULL
+testdata$LOSS_RATE_PASSENGER=NULL
+testdata$LOSS_RATE_OTHERS=NULL
+
+setwd("~/R/ML/CAR")
+
+rm(dataset_tmp,dataset)
+gc()
+
+library(caret)
+library(xgboost)
+
+TargetColumn = 'LOSS_RATE'
+ID_column = 'CONTRACT_NO'
+
+Train_Y = traindata[[TargetColumn]]
+Train_X = traindata[,-which(colnames(traindata) %in% c(TargetColumn,ID_column))]
+Test_Y = testdata[[TargetColumn]]
+Test_X = testdata[,-which(colnames(testdata) %in% c(TargetColumn,ID_column))]
+
+nrounds = 4
+set.seed(1001)
+folds = createFolds(factor(Train_Y), k = 4, list = FALSE)
+
+dev_result <-  rep(0, nrow(Train_X)) 
+pred_te <- rep(0, nrow(Train_X))
+
+
+for (this.round in 1:nrounds){      
+  valid <- c(1:length(Train_Y)) [folds == this.round]
+  dev <- c(1:length(Train_Y)) [folds != this.round]
+  
+  dtrain<- xgb.DMatrix(data= as.matrix(Train_X[dev,]), 
+                       label= Train_Y[dev],missing=NA)
+  
+  dvalid <- xgb.DMatrix(data= as.matrix(Train_X[valid,]) , 
+                        label= Train_Y[valid],missing=NA)
+
+  param = list(objective = "binary:logistic", 
+               eval_metric = "auc",
+               max_depth = 10,
+               eta = 0.05,
+               gamma = 5,
+               subsample = 0.7,   
+               colsample_bytree = 0.7,
+               min_child_weight = 50,  
+               colsample_bylevel = 0.7,
+               lambda = 1, 
+               alpha = 0,
+               booster = "gbtree",
+               silent = 0,
+               scale_pos_weight = 20
+  ) 
+  model<- xgb.train(data = dtrain,
+                    params= param, 
+                    nrounds = 600, 
+                    verbose = T, 
+                    list(val1=dtrain , val2 = dvalid) ,       
+                    early_stopping_rounds = 50 , 
+                    print_every_n = 1,
+                    maximize = T
+  )
+  saveRDS(model,paste0('model_',this.round,'.rds'))
+  pred = predict(model,as.matrix(Train_X[valid,]))
+  dev_result[valid] = pred  
+  pred_test  = predict(model,as.matrix(Test_X))
+  pred_te = pred_te +pred_test
+}
+
 
 
 
